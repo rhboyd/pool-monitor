@@ -1,0 +1,100 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  pool-monitor
+
+  Sample SAM Template for pool-monitor
+
+Resources:
+  RestAPI:
+    Type: AWS::ApiGateway::RestApi
+    Properties:
+      Name: "Pool Monitor API"
+      Description: "API For the Pool pump monitor"
+  PoolResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      ParentId: !GetAtt RestAPI.RootResourceId
+      PathPart: "pool"
+      RestApiId: !Ref RestAPI
+  PoolMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      HttpMethod: POST
+      ResourceId: !Ref PoolResource
+      RestApiId: !Ref RestAPI
+      AuthorizationType: NONE
+      MethodResponses:
+        - StatusCode: 200
+        - StatusCode: 400
+      Integration:
+        Type: AWS
+        Credentials: !GetAtt APIGWRole.Arn
+        IntegrationHttpMethod: POST
+        Uri: !Sub "arn:aws:apigateway:${AWS::Region}:dynamodb:action/PutItem"
+        IntegrationResponses:
+          - StatusCode: 200
+            ResponseTemplates:
+              application/json: |
+                {"hello": "world"}
+          - StatusCode: 400
+            ResponseTemplates:
+              application/json: |
+                {"uhoh": "Spaghetti O's"}
+        RequestTemplates:
+          application/json: !Sub
+            - |
+              {
+                "TableName": "${TableName}",
+                "Item": {
+              	  "PartitionKey": {
+                    "S": "USER_$input.path('$.user_id')"
+                  },
+                  "SortKey": {
+                    "S": "TIME_$context.requestTimeEpoch"
+                  },
+                  "Current": {
+                    "S": "$input.path('$.current')"
+                  }
+                }
+              }
+            - TableName: !Ref PoolTable
+      # RequestValidatorId: !Ref RequestValidator
+      OperationName: "PutPoolInformation"
+  APIGWRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+        - Effect: "Allow"
+          Principal:
+            Service: "apigateway.amazonaws.com"
+          Action: "sts:AssumeRole"
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonDynamoDBFullAccess
+      Path: "/"
+
+  Deployment:
+    Type: AWS::ApiGateway::Deployment
+    Properties:
+      Description: String
+      RestApiId: !Ref RestAPI
+      StageName: Prod
+
+  PoolTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      AttributeDefinitions:
+        - AttributeName: "PartitionKey"
+          AttributeType: "S"
+        - AttributeName: "SortKey"
+          AttributeType: "S"
+      KeySchema:
+        - AttributeName: "PartitionKey"
+          KeyType: "HASH"
+        - AttributeName: "SortKey"
+          KeyType: "RANGE"
+      ProvisionedThroughput:
+        ReadCapacityUnits: 1
+        WriteCapacityUnits: 1
